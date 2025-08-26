@@ -1,5 +1,6 @@
 const express = require('express');
 const axios = require('axios');
+const fs = require('fs').promises; // Use the promise-based version of fs
 const app = express();
 
 app.use(express.json());
@@ -10,20 +11,52 @@ const KEYS = {
   KOMMO_CLIENT_SECRET: process.env.KOMMO_CLIENT_SECRET,
   KOMMO_SUBDOMAIN: process.env.KOMMO_SUBDOMAIN,
   TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
-  OPENAI_API_KEY: process.env.OPENAI_API_KEY
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  APIFY_API_TOKEN: process.env.APIFY_API_TOKEN
 };
 // =====================================
 
-// In a real app, use a database. For this demo, we'll use a variable.
-// YOUR TOKEN WILL RESET IF THE SERVER RESTARTS.
+// File to store the Kommo token
+const TOKEN_FILE = 'kommo_token.txt';
+
+// Helper function to save the token to a file
+async function saveToken(token) {
+  try {
+    await fs.writeFile(TOKEN_FILE, token);
+    console.log('✅ Kommo access token saved to file.');
+  } catch (error) {
+    console.error('Error saving token to file:', error);
+  }
+}
+
+// Helper function to load the token from a file
+async function loadToken() {
+  try {
+    const token = await fs.readFile(TOKEN_FILE, 'utf8');
+    console.log('✅ Kommo access token loaded from file.');
+    return token;
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      console.log('ℹ️  No existing token file found. Needs authentication.');
+    } else {
+      console.error('Error reading token from file:', error);
+    }
+    return null;
+  }
+}
+
+// Load the token when the server starts
 let kommoAccessToken = null;
+(async () => {
+  kommoAccessToken = await loadToken();
+})();
 
 // 1. Route to start the Kommo connection (Open this in your browser)
 app.get('/auth', (req, res) => {
   // Dynamically get the hostname and construct the EXACT Redirect URI
   const redirectUri = `https://${req.get('host')}/oauth`;
   
-  // Construct the OAuth URL EXACTLY as Kommo requires :cite[1]
+  // Construct the OAuth URL EXACTLY as Kommo requires
   const authUrl = `https://www.kommo.com/oauth?client_id=${KEYS.KOMMO_CLIENT_ID}&state=some_random_state_string&mode=post_message&redirect_uri=${encodeURIComponent(redirectUri)}`;
   
   res.send(`<a href="${authUrl}">Click HERE to Connect Your Kommo Account</a>`);
@@ -49,6 +82,7 @@ app.get('/oauth', async (req, res) => {
     });
     
     kommoAccessToken = response.data.access_token;
+    await saveToken(kommoAccessToken); // Save token to file
     res.send('Kommo Connected Successfully! You can close this tab and message your Telegram bot.');
   } catch (error) {
     console.error('Kommo Auth Error:', error.response?.data);
@@ -58,6 +92,11 @@ app.get('/oauth', async (req, res) => {
 
 // 3. Main Webhook - Telegram sends messages here
 app.post('/webhook', async (req, res) => {
+  // Ensure we have the latest token loaded from the file
+  if (!kommoAccessToken) {
+    kommoAccessToken = await loadToken();
+  }
+
   const message = req.body.message;
   if (!message || !message.text) return res.sendStatus(200);
 
@@ -101,13 +140,13 @@ app.post('/webhook', async (req, res) => {
   // 5. CALL THE APIFY ZILLOW ZIP CODE SCRAPER API
   let propertyListings = [];
   try {
-    // Prepare the input for the Apify Actor as per its documentation :cite[1]
+    // Prepare the input for the Apify Actor as per its documentation
     const input = {
       "zipCodes": [searchCriteria.zipcode || "10001"], // Default to a NYC ZIP code if none found
       "priceMax": searchCriteria.maxPrice || 1000000 // Default to $1M if no budget is set
     };
 
-    // Run the Actor synchronously and get dataset items :cite[1]
+    // Run the Actor synchronously and get dataset items
     const apifyResponse = await axios.post(`https://api.apify.com/v2/acts/maxcopell~zillow-zip-search/run-sync-get-dataset-items?token=${process.env.APIFY_API_TOKEN}`, input);
     propertyListings = apifyResponse.data;
 
@@ -195,8 +234,8 @@ ${listing.detailUrl || ''}
       // C. CREATE A DEAL since they are actively searching
       await axios.post(`https://${process.env.KOMMO_SUBDOMAIN}.kommo.com/api/v4/leads`, [{
         name: `Property Search Lead: ${userName}`,
-        pipeline_id: 123456, // <<< REPLACE WITH YOUR PIPELINE ID
-        status_id: 1234567,  // <<< REPLACE WITH YOUR STATUS ID
+        pipeline_id: process.env.KOMMO_PIPELINE_ID || 123456, // Use environment variable
+        status_id: process.env.KOMMO_STATUS_ID || 1234567,    // Use environment variable
         _embedded: { contacts: [{ id: contactId }] }
       }], {
         headers: { 'Authorization': `Bearer ${kommoAccessToken}` }
@@ -205,6 +244,13 @@ ${listing.detailUrl || ''}
 
     } catch (kommoError) {
       console.error('Kommo API Error:', kommoError.response?.data);
+      
+      // If the error is due to an invalid/expired token, reset it
+      if (kommoError.response?.status === 401) {
+        console.error('🛑 Kommo access token expired or invalid. Please re-authenticate.');
+        kommoAccessToken = null; // Reset the token
+        await saveToken(''); // Clear the token file
+      }
     }
   }
 
