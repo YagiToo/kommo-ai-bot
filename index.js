@@ -4,15 +4,15 @@ const app = express();
 
 app.use(express.json());
 
-// ===== PASTE YOUR KEYS HERE =====
+// ===== USE ENVIRONMENT VARIABLES =====
 const KEYS = {
-  KOMMO_CLIENT_ID: '2ae40e81-50ff-4639-8e1b-33b967488ffc', // From Kommo > Settings > Integrations > API
-  KOMMO_CLIENT_SECRET: 'FNcQnA6eQr4KQRK5VMxUxN4uJHeN71mvLXyiQCWBm6uQAnvIqOQ7W5TdMyof7bEp', // From Kommo > Settings > Integrations > API
-  KOMMO_SUBDOMAIN: 'medkhoulali18', // Just the subdomain: 'yourcompany' from 'yourcompany.kommo.com'
-  TELEGRAM_BOT_TOKEN: '8477776790:AAFcy_q19eJAbyN3Vfcjaqo2RE5cU8r8LUc', // From @BotFather on Telegram
-  OPENAI_API_KEY: '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' // From platform.openai.com/api-keys
+  KOMMO_CLIENT_ID: process.env.KOMMO_CLIENT_ID,
+  KOMMO_CLIENT_SECRET: process.env.KOMMO_CLIENT_SECRET,
+  KOMMO_SUBDOMAIN: process.env.KOMMO_SUBDOMAIN,
+  TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY
 };
-// =================================
+// =====================================
 
 // In a real app, use a database. For this demo, we'll use a variable.
 // YOUR TOKEN WILL RESET IF THE SERVER RESTARTS.
