@@ -1,11 +1,11 @@
 const express = require('express');
 const axios = require('axios');
-const fs = require('fs').promises; // Use the promise-based version of fs
+const fs = require('fs').promises;
 const app = express();
 
 app.use(express.json());
 
-// ===== USE ENVIRONMENT VARIABLES =====
+// Environment variables
 const KEYS = {
   KOMMO_CLIENT_ID: process.env.KOMMO_CLIENT_ID,
   KOMMO_CLIENT_SECRET: process.env.KOMMO_CLIENT_SECRET,
@@ -14,85 +14,72 @@ const KEYS = {
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   APIFY_API_TOKEN: process.env.APIFY_API_TOKEN
 };
-// =====================================
 
-// File to store the Kommo token
+// Token storage
 const TOKEN_FILE = 'kommo_token.txt';
+let kommoAccessToken = null;
 
-// Helper function to save the token to a file
+// Helper functions for token management
 async function saveToken(token) {
   try {
     await fs.writeFile(TOKEN_FILE, token);
     console.log('✅ Kommo access token saved to file.');
   } catch (error) {
-    console.error('Error saving token to file:', error);
+    console.error('Error saving token:', error);
   }
 }
 
-// Helper function to load the token from a file
 async function loadToken() {
   try {
     const token = await fs.readFile(TOKEN_FILE, 'utf8');
     console.log('✅ Kommo access token loaded from file.');
     return token;
   } catch (error) {
-    if (error.code === 'ENOENT') {
-      console.log('ℹ️  No existing token file found. Needs authentication.');
-    } else {
-      console.error('Error reading token from file:', error);
-    }
+    console.log('ℹ️ No token file found. Needs authentication.');
     return null;
   }
 }
 
-// Load the token when the server starts
-let kommoAccessToken = null;
+// Load token on server start
 (async () => {
   kommoAccessToken = await loadToken();
 })();
 
-// 1. Route to start the Kommo connection (Open this in your browser)
+// Routes
 app.get('/auth', (req, res) => {
-  // Dynamically get the hostname and construct the EXACT Redirect URI
   const redirectUri = `https://${req.get('host')}/oauth`;
-  
-  // Construct the OAuth URL EXACTLY as Kommo requires
-  const authUrl = `https://www.kommo.com/oauth?client_id=${KEYS.KOMMO_CLIENT_ID}&state=some_random_state_string&mode=post_message&redirect_uri=${encodeURIComponent(redirectUri)}`;
-  
+  const authUrl = `https://www.kommo.com/oauth?client_id=${KEYS.KOMMO_CLIENT_ID}&state=random_state&mode=post_message&redirect_uri=${encodeURIComponent(redirectUri)}`;
   res.send(`<a href="${authUrl}">Click HERE to Connect Your Kommo Account</a>`);
 });
 
-// 2. Route where Kommo sends the access token after auth
 app.get('/oauth', async (req, res) => {
   const { code } = req.query;
-  if (!code) {
-    return res.status(400).send('Authorization failed: No code received from Kommo.');
-  }
+  if (!code) return res.status(400).send('No code received');
 
   try {
-    // Use the SAME redirect_uri as in the /auth step
     const redirectUri = `https://${req.get('host')}/oauth`;
-    
     const response = await axios.post(`https://${KEYS.KOMMO_SUBDOMAIN}.kommo.com/oauth2/access_token`, {
       client_id: KEYS.KOMMO_CLIENT_ID,
       client_secret: KEYS.KOMMO_CLIENT_SECRET,
       grant_type: 'authorization_code',
       code: code,
-      redirect_uri: redirectUri // Must match the initial request
+      redirect_uri: redirectUri
     });
     
     kommoAccessToken = response.data.access_token;
-    await saveToken(kommoAccessToken); // Save token to file
-    res.send('Kommo Connected Successfully! You can close this tab and message your Telegram bot.');
+    await saveToken(kommoAccessToken);
+    res.send('Kommo Connected Successfully! You can close this tab.');
   } catch (error) {
     console.error('Kommo Auth Error:', error.response?.data);
-    res.send(`Error connecting to Kommo. Ensure your Redirect URI in Kommo is set to: https://${req.get('host')}/oauth`);
+    res.send('Error connecting to Kommo. Please try again.');
   }
 });
 
-// 3. Main Webhook - Telegram sends messages here
+// Main webhook handler
 app.post('/webhook', async (req, res) => {
-  // Ensure we have the latest token loaded from the file
+  console.log('🔔 WEBHOOK RECEIVED');
+  
+  // Load token if not available
   if (!kommoAccessToken) {
     kommoAccessToken = await loadToken();
   }
@@ -104,159 +91,95 @@ app.post('/webhook', async (req, res) => {
   const userText = message.text;
   const userName = `${message.from.first_name} ${message.from.last_name || ''}`.trim();
 
-  console.log('User said:', userText);
+  console.log('📩 User message:', userText);
 
-  // 4. Use OpenAI to EXTRACT SEARCH PARAMETERS (Focus on location and budget)
-  let searchCriteria = {};
   try {
-    const openaiResponse = await axios.post('https://api.openai.com/v1/chat/completions', {
-      model: 'gpt-4o-mini',
-      messages: [{
-        role: 'user',
-        content: `Analyze this real estate request and return a JSON object. Extract the location (city or area, convert it to a relevant US ZIP code if possible) and maximum budget. If not specified, use null.
+    // 1. Get AI response
+    let aiResponse = "Hello! I'm your real estate assistant. How can I help you?";
+    try {
+      const openaiResponse = await axios.post('https://api.openai.com/v1/chat/completions', {
+        model: 'gpt-3.5-turbo',
+        messages: [{
+          role: 'user',
+          content: `Respond as a friendly real estate agent to this message: "${userText}". Keep it short and helpful.`
+        }]
+      }, {
+        headers: { 'Authorization': `Bearer ${KEYS.OPENAI_API_KEY}` }
+      });
+      aiResponse = openaiResponse.data.choices[0].message.content;
+    } catch (error) {
+      console.error('OpenAI Error:', error.response?.data);
+    }
 
-        USER REQUEST: "${userText}"
-
-        Example Output for "I want a house in NYC under 500k": {"zipcode": "10001", "maxPrice": 500000}
-
-        Return ONLY a valid JSON object. Nothing else.
-        JSON:`
-      }]
-    }, {
-      headers: { 'Authorization': `Bearer ${process.env.OPENAI_API_KEY}` }
-    });
-    // Parse the AI's response into a usable JavaScript object
-    searchCriteria = JSON.parse(openaiResponse.data.choices[0].message.content);
-  } catch (error) {
-    console.error('OpenAI Extraction Error:', error.response?.data);
-    // If AI fails, send a message asking for clarification
-    await axios.post(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-      chat_id: chatId,
-      text: "I want to help you find the perfect property! Could you please tell me your target location and budget? For example: '2-bedroom apartment in Miami under $300,000'."
-    });
-    return res.sendStatus(200);
-  }
-
-  // 5. CALL THE APIFY ZILLOW ZIP CODE SCRAPER API
-  let propertyListings = [];
-  try {
-    // Prepare the input for the Apify Actor as per its documentation
-    const input = {
-      "zipCodes": [searchCriteria.zipcode || "10001"], // Default to a NYC ZIP code if none found
-      "priceMax": searchCriteria.maxPrice || 1000000 // Default to $1M if no budget is set
-    };
-
-    // Run the Actor synchronously and get dataset items
-    const apifyResponse = await axios.post(`https://api.apify.com/v2/acts/maxcopell~zillow-zip-search/run-sync-get-dataset-items?token=${process.env.APIFY_API_TOKEN}`, input);
-    propertyListings = apifyResponse.data;
-
-    console.log(`✅ Apify API Success! Fetched ${propertyListings.length} properties.`);
-
-  } catch (error) {
-    console.error('Apify API Error:', error.response?.data);
-    // If the API call fails, inform the user.
-    await axios.post(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-      chat_id: chatId,
-      text: "It seems our property search is temporarily unavailable. Please try again in a few moments, or tell me your budget and location again."
-    });
-    return res.sendStatus(200);
-  }
-
-  // 6. FILTER & FORMAT THE RESULTS (Get top 2 most relevant)
-  const topListings = propertyListings.slice(0, 2);
-
-  // 7. GENERATE A HELPFUL AI RESPONSE BASED ON THE REAL LISTINGS
-  let aiResponse = "I found some great properties for you! 🏡";
-  if (topListings.length === 0) {
-    aiResponse = "I couldn't find any properties matching your criteria right now. Try broadening your search (e.g., a different area or higher budget).";
-  }
-
-  // 8. SEND THE RESPONSE + PROPERTY PHOTOS TO THE USER ON TELEGRAM
-  try {
-    // Send the introductory text response first
-    await axios.post(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    // 2. Send response to user
+    await axios.post(`https://api.telegram.org/bot${KEYS.TELEGRAM_BOT_TOKEN}/sendMessage`, {
       chat_id: chatId,
       text: aiResponse
     });
 
-    // If we have listings, send each one as a photo with a rich caption
-    if (topListings.length > 0) {
-      for (const listing of topListings) {
-        // BUILD A SIMPLE TEXT CAPTION WITHOUT MARKDOWN
-        const caption = `
-${listing.statusText || 'Property For Sale'} 🏠
-Price: ${listing.price || 'N/A'}
-Address: ${listing.address || 'Address not available'}
-Beds: ${listing.beds || 'N/A'} | Baths: ${listing.baths || 'N/A'} | Area: ${listing.area ? `${listing.area} sqft` : 'N/A'}
-
-${listing.detailUrl || ''}
-        `.trim();
-
-        // Prepare the photo payload. Use a placeholder if no image is available.
-        const photoUrl = listing.imgSrc || 'https://placehold.co/600x400?text=No+Image+Available';
-
-        // Send the photo with the caption. DO NOT use parse_mode.
-        await axios.post(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendPhoto`, {
-          chat_id: chatId,
-          photo: photoUrl,
-          caption: caption // parse_mode is removed
+    // 3. Save to Kommo if authenticated
+    if (kommoAccessToken) {
+      try {
+        // Create contact
+        const kommoContact = await axios.post(`https://${KEYS.KOMMO_SUBDOMAIN}.kommo.com/api/v4/contacts`, [{
+          name: userName,
+          custom_fields_values: [{
+            field_code: 'PHONE',
+            values: [{ value: message.from.id.toString() }]
+          }]
+        }], {
+          headers: { 'Authorization': `Bearer ${kommoAccessToken}` }
         });
+
+        const contactId = kommoContact.data._embedded.contacts[0].id;
+
+        // Add note
+        await axios.post(`https://${KEYS.KOMMO_SUBDOMAIN}.kommo.com/api/v4/events`, [{
+          entity_id: contactId,
+          note: `Telegram conversation:\nUser: ${userText}\nAI: ${aiResponse}`
+        }], {
+          headers: { 'Authorization': `Bearer ${kommoAccessToken}` }
+        });
+
+        // Create deal if keywords found
+        if (userText.toLowerCase().includes('buy') || userText.toLowerCase().includes('interested')) {
+          await axios.post(`https://${KEYS.KOMMO_SUBDOMAIN}.kommo.com/api/v4/leads`, [{
+            name: `Telegram Lead: ${userName}`,
+            pipeline_id: process.env.KOMMO_PIPELINE_ID || 123456,
+            status_id: process.env.KOMMO_STATUS_ID || 1234567,
+            _embedded: { contacts: [{ id: contactId }] }
+          }], {
+            headers: { 'Authorization': `Bearer ${kommoAccessToken}` }
+          });
+          console.log('✅ Deal created in Kommo');
+        }
+
+      } catch (kommoError) {
+        console.error('Kommo API Error:', kommoError.response?.data);
+        if (kommoError.response?.status === 401) {
+          kommoAccessToken = null;
+          await saveToken('');
+        }
       }
     }
 
   } catch (error) {
-    console.error('Telegram Send Error:', error.response?.data);
-  }
-
-  // 9. KOMMO INTEGRATION (Log the interaction and create a lead)
-  if (kommoAccessToken) {
-    try {
-      // A. Create or find the contact in Kommo
-      const kommoContact = await axios.post(`https://${process.env.KOMMO_SUBDOMAIN}.kommo.com/api/v4/contacts`, [{
-        name: userName,
-        custom_fields_values: [{
-          field_code: 'PHONE',
-          values: [{ value: message.from.id.toString() }]
-        }]
-      }], {
-        headers: { 'Authorization': `Bearer ${kommoAccessToken}` }
-      });
-      const contactId = kommoContact.data._embedded.contacts[0].id;
-
-      // B. Add a note about the interaction and the search performed
-      await axios.post(`https://${process.env.KOMMO_SUBDOMAIN}.kommo.com/api/v4/events`, [{
-        entity_id: contactId,
-        note: `User searched for properties on Telegram.\nQuery: "${userText}"\nFound ${propertyListings.length} results using ZIP code ${searchCriteria.zipcode}.`
-      }], {
-        headers: { 'Authorization': `Bearer ${kommoAccessToken}` }
-      });
-
-      // C. CREATE A DEAL since they are actively searching
-      await axios.post(`https://${process.env.KOMMO_SUBDOMAIN}.kommo.com/api/v4/leads`, [{
-        name: `Property Search Lead: ${userName}`,
-        pipeline_id: process.env.KOMMO_PIPELINE_ID || 123456, // Use environment variable
-        status_id: process.env.KOMMO_STATUS_ID || 1234567,    // Use environment variable
-        _embedded: { contacts: [{ id: contactId }] }
-      }], {
-        headers: { 'Authorization': `Bearer ${kommoAccessToken}` }
-      });
-      console.log('✅ SUCCESS: Created a new DEAL in Kommo!');
-
-    } catch (kommoError) {
-      console.error('Kommo API Error:', kommoError.response?.data);
-      
-      // If the error is due to an invalid/expired token, reset it
-      if (kommoError.response?.status === 401) {
-        console.error('🛑 Kommo access token expired or invalid. Please re-authenticate.');
-        kommoAccessToken = null; // Reset the token
-        await saveToken(''); // Clear the token file
-      }
-    }
+    console.error('Unexpected error:', error);
   }
 
   res.sendStatus(200);
 });
 
-// Start the server
+// Health check
+app.get('/', (req, res) => {
+  res.send('🤖 AI Real Estate Bot is running!');
+});
+
+// Start server
 const port = process.env.PORT || 3000;
-app.listen(port, () => console.log(`Server running on port ${port}`));
+app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
+  console.log('ℹ️  Make sure to:');
+  console.log('1. Visit /auth to connect Kommo');
+  console.log('2. Set Telegram webhook to /webhook');
+});
