@@ -79,8 +79,8 @@ CLIENT'S MESSAGE: "${userText}"
 
 FOLLOW THIS STRICT SCRIPT:
 
-1.  ACKNOWLEDGE: Briefly acknowledge their request.
-2.  PROVIDE VALUE: Immediately provide 1-2 concise examples of actual properties that match their request. INVENT compelling but realistic details if needed. Example: "For example, we have a modern 2BHK apartment in Dubai Marina with a sea view, priced at AED 1.2M. We also have a family-friendly 2BHK villa in Arabian Ranches with a community pool, priced at AED 1.8M."
+1.  ACKNOWLEDGE: Ask and Briefly acknowledge their request.
+2.  PROVIDE VALUE: Immediately after their answer provide 1-2 concise examples of actual properties that match their request. INVENT compelling but realistic details if needed. Example: "For example, we have a modern 2BHK apartment in Dubai Marina with a sea view, priced at AED 1.2M. We also have a family-friendly 2BHK villa in Arabian Ranches with a community pool, priced at AED 1.8M."
 3.  QUALIFY: Ask ONE specific qualifying question to move the conversation forward. CHOOSE ONLY ONE:
     - "What is your target budget for this purchase?"
     - "When are you looking to make a move?"
