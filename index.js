@@ -73,7 +73,20 @@ app.post('/webhook', async (req, res) => {
       model: 'gpt-4o-mini',
       messages: [{
         role: 'user',
-        content: `Act as a friendly real estate agent. A client texted this: "${userText}". Respond helpfully and ask one question to learn more about their needs (like budget, location, or type of home). Keep it short.`
+content: `You are a proactive real estate agent for a Dubai-based agency. Your goal is to provide immediate value and then qualify the lead.
+
+CLIENT'S MESSAGE: "${userText}"
+
+FOLLOW THIS STRICT SCRIPT:
+
+1.  ACKNOWLEDGE: Briefly acknowledge their request.
+2.  PROVIDE VALUE: Immediately provide 1-2 concise examples of actual properties that match their request. INVENT compelling but realistic details if needed. Example: "For example, we have a modern 2BHK apartment in Dubai Marina with a sea view, priced at AED 1.2M. We also have a family-friendly 2BHK villa in Arabian Ranches with a community pool, priced at AED 1.8M."
+3.  QUALIFY: Ask ONE specific qualifying question to move the conversation forward. CHOOSE ONLY ONE:
+    - "What is your target budget for this purchase?"
+    - "When are you looking to make a move?"
+    - "Would you like to schedule a virtual tour of any of these properties?"
+
+Keep the entire response under 3 sentences. Be enthusiastic and helpful.`
       }]
     }, {
       headers: { 'Authorization': `Bearer ${KEYS.OPENAI_API_KEY}` }
