@@ -6,8 +6,8 @@ app.use(express.json());
 
 // ===== PASTE YOUR KEYS HERE =====
 const KEYS = {
-  KOMMO_CLIENT_ID: 'a73fbba0-dfd7-48ca-87fe-e1adb583854d', // From Kommo > Settings > Integrations > API
-  KOMMO_CLIENT_SECRET: '3KFvkpcWbJH24EGPapiybUQpVpennkd2ChvfYRRaTO97aaOcm6ti5arNTmuDLF59', // From Kommo > Settings > Integrations > API
+  KOMMO_CLIENT_ID: '2ae40e81-50ff-4639-8e1b-33b967488ffc', // From Kommo > Settings > Integrations > API
+  KOMMO_CLIENT_SECRET: 'FNcQnA6eQr4KQRK5VMxUxN4uJHeN71mvLXyiQCWBm6uQAnvIqOQ7W5TdMyof7bEp', // From Kommo > Settings > Integrations > API
   KOMMO_SUBDOMAIN: 'medkhoulali18', // Just the subdomain: 'yourcompany' from 'yourcompany.kommo.com'
   TELEGRAM_BOT_TOKEN: '8477776790:AAFcy_q19eJAbyN3Vfcjaqo2RE5cU8r8LUc', // From @BotFather on Telegram
   OPENAI_API_KEY: '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' // From platform.openai.com/api-keys
