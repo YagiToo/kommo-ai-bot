@@ -20,26 +20,49 @@ let kommoAccessToken = null;
 
 // 1. Route to start the Kommo connection (Open this in your browser)
 app.get('/auth', (req, res) => {
-  const authUrl = `https://${KEYS.KOMMO_SUBDOMAIN}.kommo.com/oauth?client_id=${KEYS.KOMMO_CLIENT_ID}&mode=post_message`;
+  // We now dynamically get the hostname from the request, ensuring it's always correct
+  const redirectUri = `https://${req.get('host')}/oauth`;
+  const authUrl = `https://${KEYS.KOMMO_SUBDOMAIN}.kommo.com/oauth?client_id=${KEYS.KOMMO_CLIENT_ID}&mode=post_message&redirect_uri=${encodeURIComponent(redirectUri)}`;
+  
   res.send(`<a href="${authUrl}">Click HERE to Connect Your Kommo Account</a>`);
 });
 
 // 2. Route where Kommo sends the access token after auth
 app.get('/oauth', async (req, res) => {
   const { code } = req.query;
+  
+  // Check if we got a code from Kommo
+  if (!code) {
+    return res.status(400).send('Authorization failed: No code received from Kommo.');
+  }
+
   try {
+    // We must use the same redirect_uri here that we used in the /auth step
+    const redirectUri = `https://${req.get('host')}/oauth`;
+    
     const response = await axios.post(`https://${KEYS.KOMMO_SUBDOMAIN}.kommo.com/oauth2/access_token`, {
       client_id: KEYS.KOMMO_CLIENT_ID,
       client_secret: KEYS.KOMMO_CLIENT_SECRET,
       grant_type: 'authorization_code',
       code: code,
-      redirect_uri: `https://${req.get('host')}/oauth` // Zeabur will provide the hostname
+      redirect_uri: redirectUri // Use the dynamically generated URI
     });
+    
     kommoAccessToken = response.data.access_token;
-    res.send('Kommo Connected Successfully! You can close this tab and message your Telegram bot.');
+    res.send('Kommo Connected Successfully! You can close this tab and go message your Telegram bot. The AI is now ready!');
+    
   } catch (error) {
-    console.error('Kommo Auth Error:', error.response.data);
-    res.send('Error connecting to Kommo. Check the console.');
+    console.error('Kommo Auth Error:');
+    console.error('Full Error Object:', error.response?.data || error.message);
+    
+    // More helpful error message for the browser
+    let errorMessage = '<h2>Error connecting to Kommo.</h2><p>Check the server logs for details. Common causes:</p>';
+    errorMessage += '<ul><li>Mismatched Redirect URI in Kommo App Settings</li>';
+    errorMessage += '<li>Incorrect Client ID or Secret</li>';
+    errorMessage += '<li>Wrong Kommo subdomain</li></ul>';
+    errorMessage += `<p>Your Redirect URI must be set to: <strong>https://${req.get('host')}/oauth</strong></p>`;
+    
+    res.send(errorMessage);
   }
 });
 
