@@ -140,27 +140,35 @@ app.post('/webhook', async (req, res) => {
       text: aiResponse
     });
 
-    // If we have listings, send each one as a photo with a rich caption
+            // If we have listings, send each one as a photo with a rich caption
     if (topListings.length > 0) {
       for (const listing of topListings) {
-        // Construct a detailed caption with markdown formatting
+        // 1. SAFELY FORMAT THE CAPTION - Escape Markdown special characters
+        // A simple function to escape characters that break MarkdownV2
+        function escapeMarkdown(text) {
+          if (!text) return '';
+          return text.toString().replace(/([_*[\]()~`>#+\-=|{}.!])/g, '\\$1');
+        }
+
+        // 2. BUILD THE CAPTION using escaped values
         const caption = `
-*${listing.statusText || 'Property For Sale'}* 🏠
-*Price:* ${listing.price || 'N/A'}
-*Address:* ${listing.address || 'Address not available'}
-*Beds:* ${listing.beds || 'N/A'} | *Baths:* ${listing.baths || 'N/A'} | *Area:* ${listing.area ? `${listing.area} sqft` : 'N/A'}
-*Details:* ${listing.detailUrl || 'No link available'}
+${escapeMarkdown(listing.statusText) || 'Property For Sale'} 🏠
+*Price:* ${escapeMarkdown(listing.price) || 'N/A'}
+*Address:* ${escapeMarkdown(listing.address) || 'Address not available'}
+*Beds:* ${escapeMarkdown(listing.beds) || 'N/A'} | *Baths:* ${escapeMarkdown(listing.baths) || 'N/A'} | *Area:* ${listing.area ? `${escapeMarkdown(listing.area.toString())} sqft` : 'N/A'}
+        
+${escapeMarkdown(listing.detailUrl) || ''}
         `.trim();
 
-        // Prepare the photo payload. Use a placeholder if no image is available.
+        // 3. Prepare the photo payload. Use a placeholder if no image is available.
         const photoUrl = listing.imgSrc || 'https://placehold.co/600x400?text=No+Image+Available';
 
-        // Send the photo with the caption
+        // 4. Send the photo with the caption USING MarkdownV2
         await axios.post(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendPhoto`, {
           chat_id: chatId,
           photo: photoUrl,
           caption: caption,
-          parse_mode: 'Markdown' // Enable Markdown formatting for the caption
+          parse_mode: 'MarkdownV2' // Use the more robust MarkdownV2
         });
       }
     }
