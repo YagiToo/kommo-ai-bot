@@ -98,7 +98,7 @@ app.post('/webhook', async (req, res) => {
     let aiResponse = "Hello! I'm your real estate assistant. How can I help you?";
     try {
       const openaiResponse = await axios.post('https://api.openai.com/v1/chat/completions', {
-        model: 'gpt-3.5-turbo',
+        model: 'gpt-4o-mini',
         messages: [{
           role: 'user',
           content: `Respond as a friendly real estate agent to this message: "${userText}". Keep it short and helpful.`
