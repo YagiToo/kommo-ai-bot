@@ -143,12 +143,13 @@ app.post('/webhook', async (req, res) => {
             // If we have listings, send each one as a photo with a rich caption
     if (topListings.length > 0) {
       for (const listing of topListings) {
-        // 1. SAFELY FORMAT THE CAPTION - Escape Markdown special characters
-        // A simple function to escape characters that break MarkdownV2
-        function escapeMarkdown(text) {
-          if (!text) return '';
-          return text.toString().replace(/([_*[\]()~`>#+\-=|{}.!])/g, '\\$1');
-        }
+// 1. SAFELY FORMAT THE CAPTION - Escape Markdown special characters
+// A simple function to escape characters that break MarkdownV2
+function escapeMarkdown(text) {
+  if (!text) return '';
+  // Added the pipe | to the list of characters to escape
+  return text.toString().replace(/([_*[\]()~`>#+\-=|{}.!])/g, '\\$1');
+}
 
         // 2. BUILD THE CAPTION using escaped values
         const caption = `
