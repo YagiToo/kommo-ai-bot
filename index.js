@@ -71,7 +71,7 @@ app.post('/webhook', async (req, res) => {
   let searchCriteria = {};
   try {
     const openaiResponse = await axios.post('https://api.openai.com/v1/chat/completions', {
-      model: 'gpt-3.5-turbo',
+      model: 'gpt-4o-mini',
       messages: [{
         role: 'user',
         content: `Analyze this real estate request and return a JSON object. Extract the location (city or area, convert it to a relevant US ZIP code if possible) and maximum budget. If not specified, use null.
