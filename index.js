@@ -15,65 +15,7 @@ const KEYS = {
   APIFY_API_TOKEN: process.env.APIFY_API_TOKEN
 };
 
-// Token storage
-const TOKEN_FILE = 'kommo_token.txt';
-let kommoAccessToken = null;
 
-// Helper functions for token management
-async function saveToken(token) {
-  try {
-    await fs.writeFile(TOKEN_FILE, token);
-    console.log('✅ Kommo access token saved to file.');
-  } catch (error) {
-    console.error('Error saving token:', error);
-  }
-}
-
-async function loadToken() {
-  try {
-    const token = await fs.readFile(TOKEN_FILE, 'utf8');
-    console.log('✅ Kommo access token loaded from file.');
-    return token;
-  } catch (error) {
-    console.log('ℹ️ No token file found. Needs authentication.');
-    return null;
-  }
-}
-
-// Load token on server start
-(async () => {
-  kommoAccessToken = await loadToken();
-})();
-
-// Routes
-app.get('/auth', (req, res) => {
-  const redirectUri = `https://${req.get('host')}/oauth`;
-  const authUrl = `https://www.kommo.com/oauth?client_id=${KEYS.KOMMO_CLIENT_ID}&state=random_state&mode=post_message&redirect_uri=${encodeURIComponent(redirectUri)}`;
-  res.send(`<a href="${authUrl}">Click HERE to Connect Your Kommo Account</a>`);
-});
-
-app.get('/oauth', async (req, res) => {
-  const { code } = req.query;
-  if (!code) return res.status(400).send('No code received');
-
-  try {
-    const redirectUri = `https://${req.get('host')}/oauth`;
-    const response = await axios.post(`https://${KEYS.KOMMO_SUBDOMAIN}.kommo.com/oauth2/access_token`, {
-      client_id: KEYS.KOMMO_CLIENT_ID,
-      client_secret: KEYS.KOMMO_CLIENT_SECRET,
-      grant_type: 'authorization_code',
-      code: code,
-      redirect_uri: redirectUri
-    });
-    
-    kommoAccessToken = response.data.access_token;
-    await saveToken(kommoAccessToken);
-    res.send('Kommo Connected Successfully! You can close this tab.');
-  } catch (error) {
-    console.error('Kommo Auth Error:', error.response?.data);
-    res.send('Error connecting to Kommo. Please try again.');
-  }
-});
 
 // Main webhook handler
 app.post('/webhook', async (req, res) => {
