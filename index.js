@@ -63,85 +63,145 @@ app.post('/webhook', async (req, res) => {
 
   const chatId = message.chat.id;
   const userText = message.text;
+  const userName = `${message.from.first_name} ${message.from.last_name || ''}`.trim();
 
   console.log('User said:', userText);
 
-  // 4. Generate AI Response with OpenAI
-  let aiResponse = "Hello! I'm your real estate AI assistant. How can I help you find a property today?";
+  // 4. Use OpenAI to EXTRACT SEARCH PARAMETERS (Focus on location and budget)
+  let searchCriteria = {};
   try {
     const openaiResponse = await axios.post('https://api.openai.com/v1/chat/completions', {
-      model: 'gpt-4o-mini',
+      model: 'gpt-3.5-turbo',
       messages: [{
         role: 'user',
-content: `You are a proactive real estate agent for a Dubai-based agency. Your goal is to provide immediate value and then qualify the lead.
+        content: `Analyze this real estate request and return a JSON object. Extract the location (city or area, convert it to a relevant US ZIP code if possible) and maximum budget. If not specified, use null.
 
-CLIENT'S MESSAGE: "${userText}"
+        USER REQUEST: "${userText}"
 
-FOLLOW THIS STRICT SCRIPT:
+        Example Output for "I want a house in NYC under 500k": {"zipcode": "10001", "maxPrice": 500000}
 
-1.  ACKNOWLEDGE: Ask and Briefly acknowledge their request.
-2.  PROVIDE VALUE: Immediately after their answer provide 1-2 concise examples of actual properties that match their request. INVENT compelling but realistic details if needed. Example: "For example, we have a modern 2BHK apartment in Dubai Marina with a sea view, priced at AED 1.2M. We also have a family-friendly 2BHK villa in Arabian Ranches with a community pool, priced at AED 1.8M."
-3.  QUALIFY: Ask ONE specific qualifying question to move the conversation forward. CHOOSE ONLY ONE:
-    - "What is your target budget for this purchase?"
-    - "When are you looking to make a move?"
-    - "Would you like to schedule a virtual tour of any of these properties?"
-
-Keep the entire response under 3 sentences. Be enthusiastic and helpful.`
+        Return ONLY a valid JSON object. Nothing else.
+        JSON:`
       }]
     }, {
-      headers: { 'Authorization': `Bearer ${KEYS.OPENAI_API_KEY}` }
+      headers: { 'Authorization': `Bearer ${process.env.OPENAI_API_KEY}` }
     });
-    aiResponse = openaiResponse.data.choices[0].message.content;
+    // Parse the AI's response into a usable JavaScript object
+    searchCriteria = JSON.parse(openaiResponse.data.choices[0].message.content);
   } catch (error) {
-    console.error('OpenAI Error:', error.response?.data);
+    console.error('OpenAI Extraction Error:', error.response?.data);
+    // If AI fails, send a message asking for clarification
+    await axios.post(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      chat_id: chatId,
+      text: "I want to help you find the perfect property! Could you please tell me your target location and budget? For example: '2-bedroom apartment in Miami under $300,000'."
+    });
+    return res.sendStatus(200);
   }
 
-  // 5. Send the AI response back to Telegram
+  // 5. CALL THE APIFY ZILLOW ZIP CODE SCRAPER API
+  let propertyListings = [];
   try {
-    await axios.post(`https://api.telegram.org/bot${KEYS.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    // Prepare the input for the Apify Actor as per its documentation :cite[1]
+    const input = {
+      "zipCodes": [searchCriteria.zipcode || "10001"], // Default to a NYC ZIP code if none found
+      "priceMax": searchCriteria.maxPrice || 1000000 // Default to $1M if no budget is set
+    };
+
+    // Run the Actor synchronously and get dataset items :cite[1]
+    const apifyResponse = await axios.post(`https://api.apify.com/v2/acts/maxcopell~zillow-zip-search/run-sync-get-dataset-items?token=${process.env.APIFY_API_TOKEN}`, input);
+    propertyListings = apifyResponse.data;
+
+    console.log(`✅ Apify API Success! Fetched ${propertyListings.length} properties.`);
+
+  } catch (error) {
+    console.error('Apify API Error:', error.response?.data);
+    // If the API call fails, inform the user.
+    await axios.post(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      chat_id: chatId,
+      text: "It seems our property search is temporarily unavailable. Please try again in a few moments, or tell me your budget and location again."
+    });
+    return res.sendStatus(200);
+  }
+
+  // 6. FILTER & FORMAT THE RESULTS (Get top 2 most relevant)
+  const topListings = propertyListings.slice(0, 2);
+
+  // 7. GENERATE A HELPFUL AI RESPONSE BASED ON THE REAL LISTINGS
+  let aiResponse = "I found some great properties for you! 🏡";
+  if (topListings.length === 0) {
+    aiResponse = "I couldn't find any properties matching your criteria right now. Try broadening your search (e.g., a different area or higher budget).";
+  }
+
+  // 8. SEND THE RESPONSE + PROPERTY PHOTOS TO THE USER ON TELEGRAM
+  try {
+    // Send the introductory text response first
+    await axios.post(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
       chat_id: chatId,
       text: aiResponse
     });
+
+    // If we have listings, send each one as a photo with a rich caption
+    if (topListings.length > 0) {
+      for (const listing of topListings) {
+        // Construct a detailed caption with markdown formatting
+        const caption = `
+*${listing.statusText || 'Property For Sale'}* 🏠
+*Price:* ${listing.price || 'N/A'}
+*Address:* ${listing.address || 'Address not available'}
+*Beds:* ${listing.beds || 'N/A'} | *Baths:* ${listing.baths || 'N/A'} | *Area:* ${listing.area ? `${listing.area} sqft` : 'N/A'}
+*Details:* ${listing.detailUrl || 'No link available'}
+        `.trim();
+
+        // Prepare the photo payload. Use a placeholder if no image is available.
+        const photoUrl = listing.imgSrc || 'https://placehold.co/600x400?text=No+Image+Available';
+
+        // Send the photo with the caption
+        await axios.post(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendPhoto`, {
+          chat_id: chatId,
+          photo: photoUrl,
+          caption: caption,
+          parse_mode: 'Markdown' // Enable Markdown formatting for the caption
+        });
+      }
+    }
+
   } catch (error) {
     console.error('Telegram Send Error:', error.response?.data);
   }
 
-  // 6. KOMMO INTEGRATION: Save Contact & Create Deal if qualified
+  // 9. KOMMO INTEGRATION (Log the interaction and create a lead)
   if (kommoAccessToken) {
     try {
-      // A. Create or find the contact in Kommo (using Telegram user ID as a demo identifier)
-      const kommoContact = await axios.post(`https://${KEYS.KOMMO_SUBDOMAIN}.kommo.com/api/v4/contacts`, [{
-        name: `${message.from.first_name} ${message.from.last_name || ''}`.trim(),
+      // A. Create or find the contact in Kommo
+      const kommoContact = await axios.post(`https://${process.env.KOMMO_SUBDOMAIN}.kommo.com/api/v4/contacts`, [{
+        name: userName,
         custom_fields_values: [{
           field_code: 'PHONE',
-          values: [{ value: message.from.id.toString() }] // Using ID as a fake number
+          values: [{ value: message.from.id.toString() }]
         }]
       }], {
         headers: { 'Authorization': `Bearer ${kommoAccessToken}` }
       });
       const contactId = kommoContact.data._embedded.contacts[0].id;
 
-      // B. Add a note about the interaction
-      await axios.post(`https://${KEYS.KOMMO_SUBDOMAIN}.kommo.com/api/v4/events`, [{
+      // B. Add a note about the interaction and the search performed
+      await axios.post(`https://${process.env.KOMMO_SUBDOMAIN}.kommo.com/api/v4/events`, [{
         entity_id: contactId,
-        note: `Telegram Conversation:\nUser: ${userText}\nAI: ${aiResponse}`
+        note: `User searched for properties on Telegram.\nQuery: "${userText}"\nFound ${propertyListings.length} results using ZIP code ${searchCriteria.zipcode}.`
       }], {
         headers: { 'Authorization': `Bearer ${kommoAccessToken}` }
       });
 
-      // C. CHECK FOR KEYWORDS TO CONVERT TO A DEAL!
-      const lowerText = userText.toLowerCase();
-      if (lowerText.includes('buy') || lowerText.includes('interested') || lowerText.includes('budget') || lowerText.includes('viewing')) {
-        await axios.post(`https://${KEYS.KOMMO_SUBDOMAIN}.kommo.com/api/v4/leads`, [{
-          name: `New Lead from Telegram: ${message.from.first_name}`,
-          pipeline_id: 123456, // <<< REPLACE WITH YOUR KOMMO PIPELINE ID
-          status_id: 1234567,  // <<< REPLACE WITH YOUR KOMMO STATUS ID
-          _embedded: { contacts: [{ id: contactId }] }
-        }], {
-          headers: { 'Authorization': `Bearer ${kommoAccessToken}` }
-        });
-        console.log('✅ SUCCESS: Created a new DEAL in Kommo!');
-      }
+      // C. CREATE A DEAL since they are actively searching
+      await axios.post(`https://${process.env.KOMMO_SUBDOMAIN}.kommo.com/api/v4/leads`, [{
+        name: `Property Search Lead: ${userName}`,
+        pipeline_id: 123456, // <<< REPLACE WITH YOUR PIPELINE ID
+        status_id: 1234567,  // <<< REPLACE WITH YOUR STATUS ID
+        _embedded: { contacts: [{ id: contactId }] }
+      }], {
+        headers: { 'Authorization': `Bearer ${kommoAccessToken}` }
+      });
+      console.log('✅ SUCCESS: Created a new DEAL in Kommo!');
 
     } catch (kommoError) {
       console.error('Kommo API Error:', kommoError.response?.data);
