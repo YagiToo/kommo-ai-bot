@@ -10,7 +10,7 @@ const KEYS = {
   KOMMO_CLIENT_SECRET: 'FNcQnA6eQr4KQRK5VMxUxN4uJHeN71mvLXyiQCWBm6uQAnvIqOQ7W5TdMyof7bEp', // From Kommo > Settings > Integrations > API
   KOMMO_SUBDOMAIN: 'medkhoulali18', // Just the subdomain: 'yourcompany' from 'yourcompany.kommo.com'
   TELEGRAM_BOT_TOKEN: '8477776790:AAFcy_q19eJAbyN3Vfcjaqo2RE5cU8r8LUc', // From @BotFather on Telegram
-  OPENAI_API_KEY: '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' // From platform.openai.com/api-keys
+  OPENAI_API_KEY: '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' // From platform.openai.com/api-keys
 };
 // =================================
 
