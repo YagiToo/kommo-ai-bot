@@ -197,7 +197,7 @@ ${listing.detailUrl || ''}
       await axios.post(`https://${KEYS.KOMMO_SUBDOMAIN}.kommo.com/api/v4/leads`, [{
         name: `Property Search Lead: ${userName}`,
         pipeline_id: 11838840, // <<< REPLACE WITH YOUR KOMMO PIPELINE ID
-        status_id: 1234567,  // <<< REPLACE WITH YOUR KOMMO STATUS ID
+        status_id: 2315558,  // <<< REPLACE WITH YOUR KOMMO STATUS ID
         _embedded: { contacts: [{ id: contactId }] }
       }], {
         headers: { 'Authorization': `Bearer ${kommoAccessToken}` }
